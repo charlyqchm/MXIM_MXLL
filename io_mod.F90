@@ -14,6 +14,7 @@ module IO_mod
     logical            :: dftb_periodic = .false.
     logical            :: dftb_scc      = .true.
     logical            :: dftb_ion_dyn  = .false.
+    logical            :: dftb_BO_dyn   = .false.
     real(dp)           :: dftb_scc_tol  = 1.0e-10_dp
     real(dp)           :: dftb_td       = 0.1e0_dp
     
@@ -45,7 +46,8 @@ subroutine read_input_variables()
 
     namelist /MXLL_DFTB/ dftb_atom_type, dftb_max_ang_orb, dftb_periodic, dftb_scc, &
     dftb_ion_dyn, dftb_scc_tol, dftb_td, dftb_n_mol, dftb_n_atoms, dftb_n_types,    &
-    dftb_euler_steps, mxll_Nz, mxll_Nt, mxll_n_media, mxll_dz, mxll_dt,             &
+    dftb_euler_steps, dftb_BO_dyn,                                                  &
+    mxll_Nz, mxll_Nt, mxll_n_media, mxll_dz, mxll_dt,                               &
     mxll_density, mxll_z_src, mxll_w_src, mxll_tau_src, mxll_t_print_big,           &
     mxll_w_drude, mxll_gamma_drude, mxll_ep_drude, mxll_n_pml, mxll_z_detect,       &
     mxll_Ex_src, mxll_media_center, mxll_media_rad, mxll_t_print_small

@@ -43,7 +43,7 @@ program Maxwell_Maxim
     double precision :: omegaD
     double precision :: GammaD
     double precision :: eps_r
-    character(len=30):: output_file="output.dat"
+    character(len=30):: output_file="detector.dat"
     character(len=30):: dipole_file="dipole.dat"
     
     type(drude)     , allocatable :: media(:)
@@ -111,7 +111,7 @@ program Maxwell_Maxim
 
     call q_sys%init_q_medium(z_coor, len_mol, dftb_n_mol, dftb_n_atoms, dftb_n_types, density,  &
                              dt_skip, Nt_q, Nz, dftb_atom_type, dftb_max_ang_orb, dftb_scc,  &
-                             dftb_scc_tol, dftb_periodic, dftb_ion_dyn, dftb_euler_steps)
+                             dftb_scc_tol, dftb_periodic, dftb_ion_dyn, dftb_BO_dyn, dftb_euler_steps)
 
     call init_td_propagator(Nz, dz, dt)
 

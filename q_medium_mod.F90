@@ -9,6 +9,7 @@ module q_medium_mod
     implicit none
     
     type q_medium
+        logical                            :: BO_dyn
         integer                            :: n_mol
         integer                            :: n_atoms
         double precision                   :: density
@@ -22,7 +23,10 @@ module q_medium_mod
         double precision    , allocatable  :: energy(:)
         real(dp)            , allocatable  :: coor(:,:,:)
         real(dp)            , allocatable  :: coor_old(:,:,:)
+        real(dp)            , allocatable  :: coor_new(:,:,:)
         real(dp)            , allocatable  :: forces(:,:,:)
+        real(dp)            , allocatable  :: velocities(:,:,:)
+        real(dp)            , allocatable  :: at_masses(:,:)
         real(dp)            , allocatable  :: at_charges(:,:)
 
         type(fnode), pointer :: pRoot
@@ -33,8 +37,11 @@ module q_medium_mod
         type(fnode), pointer :: pSlakos
         type(fnode), pointer :: pType2Files
         type(fnode), pointer :: pElecDyn
+        type(fnode), pointer :: pElecStatic
+        type(fnode), pointer :: pExternal
         type(fnode), pointer :: pPerturb
         type(fnode), pointer :: pLaser
+        type(fnode), pointer :: pAnalysis
 
         contains
             procedure :: init_q_medium, kill_q_medium
@@ -45,12 +52,13 @@ contains
 
     subroutine init_q_medium(this, z_coor, len_mol, n_mol, n_atoms,n_type, density, &
                              td_step, n_steps, Nz, atom_type_list, max_ang_orb, scc,  &
-                             scc_tol, periodic, ion_dyn, euler_step)
+                             scc_tol, periodic, ion_dyn, BO_dyn, euler_step)
 
         class(q_medium)    , intent(inout) :: this
         logical            , intent(in)    :: scc
         logical            , intent(in)    :: periodic
         logical            , intent(in)    :: ion_dyn
+        logical            , intent(in)    :: BO_dyn
         character(len = 2) , intent(in)    :: atom_type_list(n_type)
         character(len = 2) , intent(in)    :: max_ang_orb(n_type)
         integer            , intent(in)    :: Nz
@@ -85,11 +93,11 @@ contains
         integer :: io
         logical :: exists, atom_type_exists
 
-
-
+        this%BO_dyn  = BO_dyn
         this%density = density
         this%n_atoms = n_atoms
         this%n_mol   = n_mol
+
 
         if (.not. allocated(this%index))       allocate(this%index(n_mol))
         if (.not. allocated(this%dftbp))       allocate(this%dftbp(n_mol))
@@ -98,16 +106,26 @@ contains
         if (.not. allocated(this%energy))      allocate(this%energy(n_mol))
         if (.not. allocated(this%dip_old))     allocate(this%dip_old(n_mol))
         if (.not. allocated(this%coor))        allocate(this%coor(n_mol, n_atoms, 3))
-        if (.not. allocated(this%coor_old))    allocate(this%coor_old(n_mol, n_atoms, 3))
         if (.not. allocated(this%atom_names))  allocate(this%atom_names(n_mol, n_atoms))
         if (.not. allocated(this%atom_type))   allocate(this%atom_type(n_mol, n_atoms))
-        if (.not. allocated(this%forces))      allocate(this%forces(n_mol, n_atoms, 3))
         if (.not. allocated(this%at_charges))  allocate(this%at_charges(n_mol, n_atoms))
+
+        if (this%BO_dyn) then
+            if (.not. allocated(this%coor_old))   allocate(this%coor_old(n_mol, n_atoms, 3))
+            if (.not. allocated(this%coor_new))   allocate(this%coor_new(n_mol, n_atoms, 3))
+            if (.not. allocated(this%forces))     allocate(this%forces(n_mol, n_atoms, 3))
+            if (.not. allocated(this%velocities)) allocate(this%velocities(n_mol, n_atoms, 3))
+            if (.not. allocated(this%at_masses))  allocate(this%at_masses(n_mol, n_atoms))
+            this%at_masses  = 0.0d0
+            this%forces     = 0.0d0
+            this%coor_old   = 0.0d0
+            this%coor_new   = 0.0d0
+            this%velocities = 0.0d0
+        end if
         
         this%dipole     = 0.0d0
         this%dip_old    = 0.0d0
         this%energy     = 0.0d0
-        this%forces     = 0.0d0
         this%at_charges = 0.0d0
 
         nn = 1
@@ -199,20 +217,30 @@ contains
             call setChildValue(this%pType2Files, "Separator", "-")
             call setChildValue(this%pType2Files, "Suffix", ".skf")
 
-            !  set up electron dynamics options
-            call setChild(this%pRoot, "ElectronDynamics", this%pElecDyn)
-            call setChildValue(this%pElecDyn, "Steps", n_steps)
-            call setChildValue(this%pElecDyn, "TimeStep", td_step)
-            call setChildValue(this%pElecDyn, "FieldStrength", 1.0_dp)
-            call setChildValue(this%pElecDyn, "IonDynamics", ion_dyn)
-            call setChildValue(this%pElecDyn, "InitialTemperature", 0.0_dp)
-            call setChildValue(this%pElecDyn, "EulerFrequency", euler_step)
+            if (this%BO_dyn) then
+                call setChild(this%pRoot, "Analysis", this%pAnalysis)
+                call setChildValue(this%pAnalysis, "PrintForces", .true.)
 
-            call setChild(this%pElecDyn, "Perturbation", this%pPerturb)
-            call setChild(this%pPerturb, "Laser", this%pLaser)
-           ! these twovalues will be overriden
-            call setChildValue(this%pLaser, "PolarisationDirection", [1.0_dp, 0.0_dp, 0.0_dp])
-            call setChildValue(this%pLaser, "LaserEnergy", 1.0_dp)
+                call setChild(this%pDftb, "ElectricField", this%pElecStatic)
+                call setChild(this%pElecStatic, "External", this%pExternal)
+                call setChildValue(this%pExternal, "Strength", 0.0_dp)
+                call setChildValue(this%pExternal, "Direction", [1.0_dp, 0.0_dp, 0.0_dp])
+            else
+                !  set up electron dynamics options
+                call setChild(this%pRoot, "ElectronDynamics", this%pElecDyn)
+                call setChildValue(this%pElecDyn, "Steps", n_steps)
+                call setChildValue(this%pElecDyn, "TimeStep", td_step)
+                call setChildValue(this%pElecDyn, "FieldStrength", 1.0_dp)
+                call setChildValue(this%pElecDyn, "IonDynamics", ion_dyn)
+                call setChildValue(this%pElecDyn, "InitialTemperature", 0.0_dp)
+                call setChildValue(this%pElecDyn, "EulerFrequency", euler_step)
+
+                call setChild(this%pElecDyn, "Perturbation", this%pPerturb)
+                call setChild(this%pPerturb, "Laser", this%pLaser)
+            ! these twovalues will be overriden
+                call setChildValue(this%pLaser, "PolarisationDirection", [1.0_dp, 0.0_dp, 0.0_dp])
+                call setChildValue(this%pLaser, "LaserEnergy", 1.0_dp)
+            end if
 
         end do
 
@@ -220,11 +248,16 @@ contains
             call this%dftbp(nn)%setupCalculator(this%input(nn))
             
             do kk=1, n_atoms
-                coor_aux(:, kk) = this%coor(nn,kk,:)*AA__Bohr
+                coor_aux(:, kk)    = this%coor(nn,kk,:)*AA__Bohr
+                this%coor(nn,kk,:) = this%coor(nn,kk,:)*AA__Bohr
             end do
             call this%dftbp(nn)%setGeometry(coor_aux)
             call this%dftbp(nn)%getEnergy(merminEnergy)
-            call this%dftbp(nn)%initializeTimeProp(td_step, .true., .false.)
+            if (this%BO_dyn) then
+                call this%dftbp(nn)%getAtomicMasses(this%at_masses(nn,:))
+            else
+                call this%dftbp(nn)%initializeTimeProp(td_step, .true., .false.)
+            end if
         end do
 
         this%coor_old = this%coor
@@ -248,10 +281,13 @@ contains
         if (allocated(this%dip_old))     deallocate(this%dip_old)
         if (allocated(this%coor))        deallocate(this%coor)
         if (allocated(this%coor_old))    deallocate(this%coor_old)
+        if (allocated(this%coor_new))    deallocate(this%coor_new)
         if (allocated(this%atom_names))  deallocate(this%atom_names)
         if (allocated(this%atom_type))   deallocate(this%atom_type)
         if (allocated(this%forces))      deallocate(this%forces)
         if (allocated(this%at_charges))  deallocate(this%at_charges)
+        if (allocated(this%velocities))  deallocate(this%velocities)
+        if (allocated(this%at_masses))   deallocate(this%at_masses)
 
     end subroutine kill_q_medium
 

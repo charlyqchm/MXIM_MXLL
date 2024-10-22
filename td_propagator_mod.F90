@@ -14,7 +14,7 @@ module td_propagator_mod
     double precision :: tskip,dtskip,dtskipsec,dtskipH,dtskipHsec, time   !New TDSE time Steps
     double precision :: dt_eps0,dt_mu0, dt_epsM
     integer          :: npml
-    integer          :: nskip,nts, tq_step_old    
+    integer          :: nskip,nts, tq_step_old
     
     
     double precision, allocatable :: den_ez(:)
@@ -253,7 +253,7 @@ module td_propagator_mod
         integer               :: n_mol
         integer               :: n_at
         integer               :: ii, jj, indx
-        double precision      :: E_field
+        real(dp)              :: E_field
         real(dp)              :: dipole(3, 1)
         real(dp)              :: aux_field(3)
         real(dp)              :: energy
@@ -276,37 +276,81 @@ module td_propagator_mod
         n_at  = q_sys%n_atoms
         
         allocate(atomNetCharges(n_at, 1), coor_aux(3, n_at), forces_aux(3, n_at))        
-               
-        do ii=1, n_mol
-            indx         = q_sys%index(ii)
-            E_field      = mxll_grid%Ex(indx)
-            aux_field(1) = E_field
-            dipole       = 0.0d0
+        
+        if (q_sys%BO_dyn) then
 
-            q_sys%dip_old(ii) = q_sys%dipole(ii)
+            do ii=1, n_mol
 
-            q_sys%coor_old(ii,:,:) = q_sys%coor(ii,:,:)
+                indx         = q_sys%index(ii)
+                E_field      = mxll_grid%Ex(indx)
+                aux_field(1) = 1.0d0
+                dipole       = 0.0d0
 
-            call q_sys%dftbp(ii)%setTdElectricField(aux_field)
-            call q_sys%dftbp(ii)%doOneTdStep(tq_step, dipole=dipole, energy=energy, &
-                                             atomNetCharges=atomNetCharges        , &
-                                             coord=coor_aux, force= forces_aux)
-            q_sys%dipole(ii) = dipole(1, 1)
-            q_sys%energy(ii) = energy
+                q_sys%dip_old(ii) = q_sys%dipole(ii)
+                
+                do jj=1, n_at
+                    coor_aux(:, jj) = q_sys%coor(ii,jj,:)
+                end do
+                call q_sys%dftbp(ii)%setGeometry(coor_aux)
+                call q_sys%dftbp(ii)%setExternalEfield(E_field, aux_field)
+                call q_sys%dftbp(ii)%getGradients(forces_aux)
+                call q_sys%dftbp(ii)%getGrossCharges(atomNetCharges(:,1))
+                
+                q_sys%dipole(ii) = 0.0d0
+
+                do jj=1, n_at
+                    q_sys%at_charges(ii,jj) = atomNetCharges(jj,1)
+                    q_sys%forces(ii,jj,:)   = -forces_aux(:,jj)
+                    
+                    q_sys%coor_new(ii,jj,:) =  2.0*q_sys%coor(ii,jj,:) - q_sys%coor_old(ii,jj,:) + &
+                    q_sys%forces(ii,jj,:)/q_sys%at_masses(ii,jj)*dt_skip**2
+                   
+                    q_sys%dipole(ii) = q_sys%dipole(ii)  + q_sys%at_charges(ii,jj) * q_sys%coor_new(ii,jj,1)
+                end do 
+
+                q_sys%coor_old(ii,:,:) = q_sys%coor(ii,:,:)
+                q_sys%coor(ii,:,:)     = q_sys%coor_new(ii,:,:)
+
+                mxll_grid%Jx(indx)=(q_sys%dipole(ii)-q_sys%dip_old(ii))/dt_skip
             
-            do jj=1, n_at
-                q_sys%at_charges(ii,jj) =  atomNetCharges(jj,1)
-                q_sys%coor(ii,jj,:) = coor_aux(:, jj)
-                q_sys%forces(ii,jj,:) = forces_aux(:,jj)
+                if(tq_step==1) mxll_grid%Jx(indx)= 0.0d0
+
+                mxll_grid%dJx(indx)=(mxll_grid%Jx(indx)-mxll_grid%Jx_old(indx))/dt_skip
+
             end do
 
-            mxll_grid%Jx(indx)=(q_sys%dipole(ii)-q_sys%dip_old(ii))/dt_skip
-          
-            if(tq_step==1) mxll_grid%Jx(indx)= 0.0d0
+        else
 
-            mxll_grid%dJx(indx)=(mxll_grid%Jx(indx)-mxll_grid%Jx_old(indx))/dt_skip
+            do ii=1, n_mol
+                indx         = q_sys%index(ii)
+                E_field      = mxll_grid%Ex(indx)
+                aux_field(1) = E_field
+                dipole       = 0.0d0
 
-        end do
+                q_sys%dip_old(ii) = q_sys%dipole(ii)
+
+                call q_sys%dftbp(ii)%setTdElectricField(aux_field)
+                call q_sys%dftbp(ii)%doOneTdStep(tq_step, dipole=dipole, energy=energy, &
+                                                atomNetCharges=atomNetCharges        , &
+                                                coord=coor_aux, force= forces_aux)
+                q_sys%dipole(ii) = dipole(1, 1)
+                q_sys%energy(ii) = energy
+                
+                do jj=1, n_at
+                    q_sys%at_charges(ii,jj) =  atomNetCharges(jj,1)
+                    q_sys%coor(ii,jj,:) = coor_aux(:, jj)
+                end do
+
+                mxll_grid%Jx(indx)=(q_sys%dipole(ii)-q_sys%dip_old(ii))/dt_skip
+            
+                if(tq_step==1) mxll_grid%Jx(indx)= 0.0d0
+
+                mxll_grid%dJx(indx)=(mxll_grid%Jx(indx)-mxll_grid%Jx_old(indx))/dt_skip
+
+            end do
+        
+        end if
+
         write(dip_unit,*) time,  q_sys%dipole(:)
 
         deallocate(atomNetCharges)
