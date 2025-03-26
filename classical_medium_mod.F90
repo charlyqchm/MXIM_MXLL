@@ -53,7 +53,7 @@ module classical_medium_mod
 
         n_count = 0
         do kk=1, Nz
-            if ((z_coor(kk)>z_min) .and. (z_coor(kk)<z_max)) then
+            if ((z_coor(kk)>=z_min) .and. (z_coor(kk)<=z_max)) then
                 n_count = n_count + 1
             end if
         end do
@@ -68,7 +68,7 @@ module classical_medium_mod
 
         ii=1
         do kk=1, Nz
-            if ((z_coor(kk)>z_min) .and. (z_coor(kk)<z_max)) then
+            if ((z_coor(kk)>=z_min) .and. (z_coor(kk)<=z_max)) then
                 this%indx(ii) = kk
                 ii = ii + 1
             end if

@@ -5,6 +5,7 @@ INCLUDE_DIR=/home/bustamac/Programs_and_libraries/dftbplus_dev/_build/_install/i
 LIB_DIR=/home/bustamac/Programs_and_libraries/dftbplus_dev/_build/_install/lib
 
 SRC:=constants_mod.F90
+SRC+=external_src_mod.F90
 SRC+=grid_mod.F90
 SRC+=classical_medium_mod.F90
 SRC+=io_mod.F90

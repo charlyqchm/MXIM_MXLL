@@ -1,5 +1,9 @@
 module grid_mod
 
+    use constants_mod
+
+    implicit none
+
     type grid
         integer          :: Nz
         double precision, allocatable :: psi_Exz_1(:)
@@ -16,7 +20,7 @@ module grid_mod
         double precision, allocatable :: H_coor(:)
 
         contains
-            procedure :: init_grid, kill_grid
+            procedure :: init_grid, kill_grid, get_energy
 
     end type grid
 
@@ -84,5 +88,37 @@ contains
         if (allocated(this%H_coor))    deallocate(this%H_coor)
 
     end subroutine kill_grid
+
+    subroutine get_energy(this, rz, dz, energy)
+
+        class(grid)     , intent(inout) :: this
+        double precision, intent(out)   :: energy
+        double precision, intent(in)    :: rz
+        double precision, intent(in)    :: dz
+        
+        double precision :: z_max
+        double precision :: z_min
+        double precision :: E_x, H_y
+        integer          :: ii
+
+        z_max  =  rz*nm_to_au
+        z_min  = -rz*nm_to_au
+        energy = 0.0d0
+
+        do ii=2, this%Nz-1
+
+            if (this%E_coor(ii) >= z_min .and. this%E_coor(ii) <= z_max) then
+                E_x = this%Ex(ii)
+                H_y = 0.5*(this%Hy(ii) + this%Hy(ii-1))
+
+                energy = energy + 0.5*eps0 * E_x**2 + 0.5*mu0 * H_y**2
+
+            end if
+
+        end do
+
+        energy = 0.5*dz*energy/(rz*nm_to_au)
+
+    end subroutine get_energy
 
 end module grid_mod

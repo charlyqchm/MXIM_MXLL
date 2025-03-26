@@ -10,9 +10,14 @@ module q_medium_mod
     
     type q_medium
         logical                            :: BO_dyn
+        logical                            :: B_field
         integer                            :: n_mol
         integer                            :: n_atoms
         double precision                   :: density
+        double precision                   :: E_gs
+        double precision                   :: dE_t
+        double precision                   :: Kin ! only from x component
+        double precision                   :: dip_tot
         character(len=2)    , allocatable  :: atom_names(:,:)
         integer             , allocatable  :: atom_type(:,:)
         integer             , allocatable  :: index(:)
@@ -24,8 +29,10 @@ module q_medium_mod
         real(dp)            , allocatable  :: coor(:,:,:)
         real(dp)            , allocatable  :: coor_old(:,:,:)
         real(dp)            , allocatable  :: coor_new(:,:,:)
+        real(dp)            , allocatable  :: coor_av(:,:)
+        real(dp)            , allocatable  :: charges_av(:)
         real(dp)            , allocatable  :: forces(:,:,:)
-        real(dp)            , allocatable  :: velocities(:,:,:)
+        real(dp)            , allocatable  :: vel(:,:,:)
         real(dp)            , allocatable  :: at_masses(:,:)
         real(dp)            , allocatable  :: at_charges(:,:)
 
@@ -52,13 +59,14 @@ contains
 
     subroutine init_q_medium(this, z_coor, len_mol, n_mol, n_atoms,n_type, density, &
                              td_step, n_steps, Nz, atom_type_list, max_ang_orb, scc,  &
-                             scc_tol, periodic, ion_dyn, BO_dyn, euler_step)
+                             scc_tol, periodic, ion_dyn, BO_dyn, B_field, euler_step)
 
         class(q_medium)    , intent(inout) :: this
         logical            , intent(in)    :: scc
         logical            , intent(in)    :: periodic
         logical            , intent(in)    :: ion_dyn
         logical            , intent(in)    :: BO_dyn
+        logical            , intent(in)    :: B_field
         character(len = 2) , intent(in)    :: atom_type_list(n_type)
         character(len = 2) , intent(in)    :: max_ang_orb(n_type)
         integer            , intent(in)    :: Nz
@@ -94,6 +102,7 @@ contains
         logical :: exists, atom_type_exists
 
         this%BO_dyn  = BO_dyn
+        this%B_field = B_field
         this%density = density
         this%n_atoms = n_atoms
         this%n_mol   = n_mol
@@ -109,18 +118,21 @@ contains
         if (.not. allocated(this%atom_names))  allocate(this%atom_names(n_mol, n_atoms))
         if (.not. allocated(this%atom_type))   allocate(this%atom_type(n_mol, n_atoms))
         if (.not. allocated(this%at_charges))  allocate(this%at_charges(n_mol, n_atoms))
+        if (.not. allocated(this%charges_av))   allocate(this%charges_av(n_atoms))
 
         if (this%BO_dyn) then
             if (.not. allocated(this%coor_old))   allocate(this%coor_old(n_mol, n_atoms, 3))
             if (.not. allocated(this%coor_new))   allocate(this%coor_new(n_mol, n_atoms, 3))
             if (.not. allocated(this%forces))     allocate(this%forces(n_mol, n_atoms, 3))
-            if (.not. allocated(this%velocities)) allocate(this%velocities(n_mol, n_atoms, 3))
+            if (.not. allocated(this%vel))        allocate(this%vel(n_mol, n_atoms, 3))
             if (.not. allocated(this%at_masses))  allocate(this%at_masses(n_mol, n_atoms))
+            if (.not. allocated(this%coor_av))    allocate(this%coor_av(n_atoms,3))
+
             this%at_masses  = 0.0d0
             this%forces     = 0.0d0
             this%coor_old   = 0.0d0
             this%coor_new   = 0.0d0
-            this%velocities = 0.0d0
+            this%vel = 0.0d0
         end if
         
         this%dipole     = 0.0d0
@@ -156,15 +168,24 @@ contains
                 
                 read(io, *) n_atoms_aux
 
+                
                 if (n_atoms_aux /= n_atoms) then
                     write(*,*) "Error. File   ", input_name, "does not have", n_atoms, "atoms."
                     stop   
                 end if
-
-                do nn=1, n_atoms
-                    read(io, *) at_name, this%coor(kk,nn,1), this%coor(kk,nn,2), this%coor(kk,nn,3) 
-                    this%atom_names(kk,nn) = at_name
                 
+                do nn=1, n_atoms
+                    if (this%BO_dyn) then
+                        read(io, *) at_name, this%coor(kk,nn,1), this%coor(kk,nn,2), &
+                        this%coor(kk,nn,3), &
+                        this%vel(kk,nn,1), &
+                        this%vel(kk,nn,2), &
+                        this%vel(kk,nn,3)
+                    else
+                        read(io, *) at_name, this%coor(kk,nn,1), this%coor(kk,nn,2), this%coor(kk,nn,3)
+                    end if
+                    
+                    this%atom_names(kk,nn) = at_name
                     atom_type_exists = .false.
                     do ii=1, n_type
                         if (at_name == atom_type_list(ii)) then
@@ -178,6 +199,9 @@ contains
                         stop
                     end if
                 end do
+
+
+
             else
                 write(*,*) "Error. File", file_name, "does not exist"
                 stop 
@@ -244,6 +268,11 @@ contains
 
         end do
 
+        this%dE_t    = 0.0d0
+        this%E_gs    = 0.0d0
+        this%Kin     = 0.0d0
+        this%dip_tot = 0.0d0
+
         do nn=1, n_mol
             call this%dftbp(nn)%setupCalculator(this%input(nn))
             
@@ -253,6 +282,9 @@ contains
             end do
             call this%dftbp(nn)%setGeometry(coor_aux)
             call this%dftbp(nn)%getEnergy(merminEnergy)
+            
+            this%E_gs = this%E_gs + merminEnergy
+
             if (this%BO_dyn) then
                 call this%dftbp(nn)%getAtomicMasses(this%at_masses(nn,:))
             else
@@ -260,7 +292,17 @@ contains
             end if
         end do
 
-        this%coor_old = this%coor
+
+        if (this%BO_dyn) then
+            do nn=1, n_mol    
+            do kk=1, n_atoms
+                this%coor_old(nn,kk,:) = this%coor(nn,kk,:) - &
+                                         this%vel(nn,kk,:)*AA__Bohr*td_step
+            end do
+            end do
+        else
+            this%coor_old = this%coor
+        end if
 
     end subroutine init_q_medium
 
@@ -286,8 +328,10 @@ contains
         if (allocated(this%atom_type))   deallocate(this%atom_type)
         if (allocated(this%forces))      deallocate(this%forces)
         if (allocated(this%at_charges))  deallocate(this%at_charges)
-        if (allocated(this%velocities))  deallocate(this%velocities)
+        if (allocated(this%vel))         deallocate(this%vel)
         if (allocated(this%at_masses))   deallocate(this%at_masses)
+        if (allocated(this%charges_av))  deallocate(this%charges_av)
+        if (allocated(this%coor_av))     deallocate(this%coor_av)
 
     end subroutine kill_q_medium
 

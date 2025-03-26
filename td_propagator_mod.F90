@@ -240,19 +240,23 @@ module td_propagator_mod
 
     end subroutine td_prop_WO_media    
 
-    subroutine td_propagate_q_medium(q_sys, mxll_grid, t_step, n_skip, dt_skip, dip_unit)
+    subroutine td_propagate_q_medium(q_sys, mxll_grid, t_step, n_skip, dt_skip, q_sys_unit, &
+                                     coor_charge_unit)
 
         type(q_medium)   , intent(inout) :: q_sys
         type(grid)       , intent(inout) :: mxll_grid
         integer          , intent(in)    :: t_step
         integer          , intent(in)    :: n_skip
-        integer          , intent(in)    :: dip_unit
+        integer          , intent(in)    :: q_sys_unit
+        integer          , intent(in)    :: coor_charge_unit
         double precision , intent(in)    :: dt_skip
 
         integer               :: tq_step
         integer               :: n_mol
         integer               :: n_at
         integer               :: ii, jj, indx
+        real(dp)              :: vv
+        real(dp)              :: By
         real(dp)              :: E_field
         real(dp)              :: dipole(3, 1)
         real(dp)              :: aux_field(3)
@@ -261,6 +265,12 @@ module td_propagator_mod
         real(dp), allocatable :: atomNetCharges(:, :)
         real(dp), allocatable :: coor_aux(:,:)
         real(dp), allocatable :: forces_aux(:,:)
+
+        !temporal to calculate angles
+        real(dp) :: mass
+        real(dp) :: F_CM(3)
+        ! real(dp) :: r_vec(3)
+        ! real(dp) :: cos_teta2(3)
 
         aux_field    = 0.0d0
         
@@ -279,10 +289,17 @@ module td_propagator_mod
         
         if (q_sys%BO_dyn) then
 
-            do ii=1, n_mol
+            q_sys%Kin        = 0.0d0
+            q_sys%dE_t       = -q_sys%E_gs
+            q_sys%dip_tot    = 0.0d0
+            q_sys%coor_av    = 0.0d0
+            q_sys%charges_av = 0.0d0
+            ! cos_teta2 = 0.0
 
+            do ii=1, n_mol
                 indx         = q_sys%index(ii)
                 E_field      = mxll_grid%Ex(indx)
+                By           = 0.5/mu0 * (mxll_grid%Hy(indx-1) + mxll_grid%Hy(indx))
                 aux_field(1) = 1.0d0
                 dipole       = 0.0d0
 
@@ -294,20 +311,70 @@ module td_propagator_mod
                 call q_sys%dftbp(ii)%setGeometry(coor_aux)
                 call q_sys%dftbp(ii)%setExternalEfield(E_field, aux_field)
                 call q_sys%dftbp(ii)%getGradients(forces_aux)
-                call q_sys%dftbp(ii)%getGrossCharges(atomNetCharges(:,1))
-                
+                call q_sys%dftbp(ii)%getEnergy(energy)
+                call q_sys%dftbp(ii)%getGrossCharges(atomNetCharges(:,1)) 
+
+                q_sys%dE_t = q_sys%dE_t + energy
+
                 q_sys%dipole(ii) = 0.0d0
 
                 do jj=1, n_at
                     q_sys%at_charges(ii,jj) = atomNetCharges(jj,1)
-                    q_sys%forces(ii,jj,:)   = -forces_aux(:,jj)
-                    
-                    q_sys%coor_new(ii,jj,:) =  2.0*q_sys%coor(ii,jj,:) - q_sys%coor_old(ii,jj,:) + &
-                    q_sys%forces(ii,jj,:)/q_sys%at_masses(ii,jj)*dt_skip**2
+                    q_sys%forces(ii,jj,:)   = -forces_aux(:,jj)  
+                    if (q_sys%B_field) then
+                        q_sys%forces(ii,jj,1) = q_sys%forces(ii,jj,1) - q_sys%at_charges(ii,jj)*q_sys%vel(ii,jj,3)*By
+                        q_sys%forces(ii,jj,3) = q_sys%forces(ii,jj,3) + q_sys%at_charges(ii,jj)*q_sys%vel(ii,jj,1)*By
+                    end if
+                end do
+                
+                F_CM = 0.0d0
+                mass = 0.0d0
+                do jj=1, n_at
+                    F_CM = F_CM + q_sys%at_masses(ii, jj)*q_sys%forces(ii,jj,:)
+                    mass = mass + q_sys%at_masses(ii, jj)
+                end do
+                F_CM = F_CM/mass
+
+                do jj=1, n_at
+                   
+                    if (tq_step == 1) then
+                        q_sys%coor_new(ii,jj,:) =  q_sys%coor(ii,jj,:) + q_sys%vel(ii,jj,:)*dt_skip + &
+                        0.5*(q_sys%forces(ii,jj,:)-F_CM(:))/q_sys%at_masses(ii,jj)*dt_skip**2
+                    else
+                        q_sys%coor_new(ii,jj,:) =  2.0*q_sys%coor(ii,jj,:) - q_sys%coor_old(ii,jj,:) + &
+                        (q_sys%forces(ii,jj,:)-F_CM(:))/q_sys%at_masses(ii,jj)*dt_skip**2
+                    end if
                    
                     q_sys%dipole(ii) = q_sys%dipole(ii)  + q_sys%at_charges(ii,jj) * q_sys%coor_new(ii,jj,1)
-                end do 
+                
+                    q_sys%vel(ii,jj,1) = (q_sys%coor_new(ii,jj,1)-q_sys%coor(ii,jj,1))/dt_skip
+                    q_sys%vel(ii,jj,2) = (q_sys%coor_new(ii,jj,2)-q_sys%coor(ii,jj,2))/dt_skip
+                    q_sys%vel(ii,jj,3) = (q_sys%coor_new(ii,jj,3)-q_sys%coor(ii,jj,3))/dt_skip
 
+                    vv = q_sys%vel(ii,jj,1)**2 + q_sys%vel(ii,jj,2)**2 + q_sys%vel(ii,jj,3)**2
+
+                    q_sys%Kin = q_sys%Kin  + 0.5 * vv * q_sys%at_masses(ii,jj)
+                        
+                    q_sys%charges_av(jj) = q_sys%charges_av(jj) + q_sys%at_charges(ii,jj)
+
+                    q_sys%coor_av(jj, 1) = q_sys%coor_av(jj, 1) + q_sys%coor_new(ii,jj,1)
+                    q_sys%coor_av(jj, 2) = q_sys%coor_av(jj, 2) + q_sys%coor_new(ii,jj,2)
+                    q_sys%coor_av(jj, 3) = q_sys%coor_av(jj, 3) + q_sys%coor_new(ii,jj,3)
+
+                    
+                end do 
+                
+                !temporal to calculate theta
+                ! r_vec(1) =  q_sys%coor_new(ii, 1, 1) - q_sys%coor_new(ii, 2, 1) 
+                ! r_vec(2) =  q_sys%coor_new(ii, 1, 2) - q_sys%coor_new(ii, 2, 2)
+                ! r_vec(3) =  q_sys%coor_new(ii, 1, 3) - q_sys%coor_new(ii, 2, 3)
+
+                ! cos_teta2(1) = cos_teta2(1) + r_vec(1)**2/(r_vec(1)**2+ r_vec(2)**2+ r_vec(3)**2)
+                ! cos_teta2(2) = cos_teta2(2) + r_vec(2)**2/(r_vec(1)**2+ r_vec(2)**2+ r_vec(3)**2)
+                ! cos_teta2(3) = cos_teta2(3) + r_vec(3)**2/(r_vec(1)**2+ r_vec(2)**2+ r_vec(3)**2)
+
+                q_sys%dip_tot = q_sys%dip_tot + q_sys%dipole(ii)
+                
                 q_sys%coor_old(ii,:,:) = q_sys%coor(ii,:,:)
                 q_sys%coor(ii,:,:)     = q_sys%coor_new(ii,:,:)
 
@@ -321,6 +388,9 @@ module td_propagator_mod
 
         else
 
+            q_sys%dE_t       = -q_sys%E_gs
+            q_sys%dip_tot    = 0.0d0
+!TODO: The same information should be printed for non-BO dynamics
             do ii=1, n_mol
                 indx         = q_sys%index(ii)
                 E_field      = mxll_grid%Ex(indx)
@@ -335,7 +405,8 @@ module td_propagator_mod
                                                 coord=coor_aux, force= forces_aux)
                 q_sys%dipole(ii) = dipole(1, 1)
                 q_sys%energy(ii) = energy
-                
+                q_sys%dE_t       = q_sys%dE_t + energy
+                q_sys%dip_tot    = q_sys%dip_tot + q_sys%dipole(ii)
                 do jj=1, n_at
                     q_sys%at_charges(ii,jj) =  atomNetCharges(jj,1)
                     q_sys%coor(ii,jj,:) = coor_aux(:, jj)
@@ -351,7 +422,31 @@ module td_propagator_mod
         
         end if
 
-        write(dip_unit,*) time,  q_sys%dipole(:)
+
+        if (q_sys%BO_dyn) then
+            write(q_sys_unit,*) time,  q_sys%dE_t/q_sys%n_mol, q_sys%Kin/q_sys%n_mol, &
+                                q_sys%dip_tot/q_sys%n_mol
+        else
+            write(q_sys_unit,*) time,  q_sys%dE_t/q_sys%n_mol, q_sys%dip_tot/q_sys%n_mol
+        end if
+
+        
+        if (q_sys%BO_dyn) then
+            write(coor_charge_unit,*) q_sys%n_atoms
+            write(coor_charge_unit,*) "time :", time
+            do ii=1, q_sys%n_atoms
+
+                write(coor_charge_unit,*) q_sys%atom_names(1,ii), &
+                q_sys%coor_av(ii, 1)/AA__Bohr/q_sys%n_mol,        &
+                q_sys%coor_av(ii, 2)/AA__Bohr/q_sys%n_mol,        &
+                q_sys%coor_av(ii, 3)/AA__Bohr/q_sys%n_mol,        &
+                q_sys%charges_av(ii)/q_sys%n_mol
+
+            end do
+
+            ! write(777, *) time, cos_teta2/q_sys%n_mol
+
+        end if
 
         deallocate(atomNetCharges)
         deallocate(coor_aux)
