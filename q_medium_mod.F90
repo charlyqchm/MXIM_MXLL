@@ -11,6 +11,7 @@ module q_medium_mod
     type q_medium
         logical                            :: BO_dyn
         logical                            :: B_field
+        logical                            :: ion_dyn
         integer                            :: n_mol
         integer                            :: n_atoms
         double precision                   :: density
@@ -26,11 +27,10 @@ module q_medium_mod
         double precision    , allocatable  :: dipole(:)
         double precision    , allocatable  :: dip_old(:)
         double precision    , allocatable  :: energy(:)
+        double precision    , allocatable  :: energy_gs(:)
         real(dp)            , allocatable  :: coor(:,:,:)
         real(dp)            , allocatable  :: coor_old(:,:,:)
         real(dp)            , allocatable  :: coor_new(:,:,:)
-        real(dp)            , allocatable  :: coor_av(:,:)
-        real(dp)            , allocatable  :: charges_av(:)
         real(dp)            , allocatable  :: forces(:,:,:)
         real(dp)            , allocatable  :: vel(:,:,:)
         real(dp)            , allocatable  :: at_masses(:,:)
@@ -102,6 +102,7 @@ contains
         logical :: exists, atom_type_exists
 
         this%BO_dyn  = BO_dyn
+        this%ion_dyn = ion_dyn
         this%B_field = B_field
         this%density = density
         this%n_atoms = n_atoms
@@ -113,12 +114,12 @@ contains
         if (.not. allocated(this%input))       allocate(this%input(n_mol))
         if (.not. allocated(this%dipole))      allocate(this%dipole(n_mol))
         if (.not. allocated(this%energy))      allocate(this%energy(n_mol))
+        if (.not. allocated(this%energy_gs))   allocate(this%energy_gs(n_mol))
         if (.not. allocated(this%dip_old))     allocate(this%dip_old(n_mol))
         if (.not. allocated(this%coor))        allocate(this%coor(n_mol, n_atoms, 3))
         if (.not. allocated(this%atom_names))  allocate(this%atom_names(n_mol, n_atoms))
         if (.not. allocated(this%atom_type))   allocate(this%atom_type(n_mol, n_atoms))
         if (.not. allocated(this%at_charges))  allocate(this%at_charges(n_mol, n_atoms))
-        if (.not. allocated(this%charges_av))   allocate(this%charges_av(n_atoms))
 
         if (this%BO_dyn) then
             if (.not. allocated(this%coor_old))   allocate(this%coor_old(n_mol, n_atoms, 3))
@@ -126,8 +127,6 @@ contains
             if (.not. allocated(this%forces))     allocate(this%forces(n_mol, n_atoms, 3))
             if (.not. allocated(this%vel))        allocate(this%vel(n_mol, n_atoms, 3))
             if (.not. allocated(this%at_masses))  allocate(this%at_masses(n_mol, n_atoms))
-            if (.not. allocated(this%coor_av))    allocate(this%coor_av(n_atoms,3))
-
             this%at_masses  = 0.0d0
             this%forces     = 0.0d0
             this%coor_old   = 0.0d0
@@ -284,6 +283,7 @@ contains
             call this%dftbp(nn)%getEnergy(merminEnergy)
             
             this%E_gs = this%E_gs + merminEnergy
+            this%energy_gs(nn) =  merminEnergy
 
             if (this%BO_dyn) then
                 call this%dftbp(nn)%getAtomicMasses(this%at_masses(nn,:))
@@ -320,6 +320,7 @@ contains
         if (allocated(this%input))       deallocate(this%input)
         if (allocated(this%dipole))      deallocate(this%dipole)
         if (allocated(this%energy))      deallocate(this%energy)
+        if (allocated(this%energy_gs))   deallocate(this%energy_gs)        
         if (allocated(this%dip_old))     deallocate(this%dip_old)
         if (allocated(this%coor))        deallocate(this%coor)
         if (allocated(this%coor_old))    deallocate(this%coor_old)
@@ -330,8 +331,6 @@ contains
         if (allocated(this%at_charges))  deallocate(this%at_charges)
         if (allocated(this%vel))         deallocate(this%vel)
         if (allocated(this%at_masses))   deallocate(this%at_masses)
-        if (allocated(this%charges_av))  deallocate(this%charges_av)
-        if (allocated(this%coor_av))     deallocate(this%coor_av)
 
     end subroutine kill_q_medium
 

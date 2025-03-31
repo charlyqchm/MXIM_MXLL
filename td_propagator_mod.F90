@@ -292,8 +292,6 @@ module td_propagator_mod
             q_sys%Kin        = 0.0d0
             q_sys%dE_t       = -q_sys%E_gs
             q_sys%dip_tot    = 0.0d0
-            q_sys%coor_av    = 0.0d0
-            q_sys%charges_av = 0.0d0
             ! cos_teta2 = 0.0
 
             do ii=1, n_mol
@@ -355,13 +353,6 @@ module td_propagator_mod
 
                     q_sys%Kin = q_sys%Kin  + 0.5 * vv * q_sys%at_masses(ii,jj)
                         
-                    q_sys%charges_av(jj) = q_sys%charges_av(jj) + q_sys%at_charges(ii,jj)
-
-                    q_sys%coor_av(jj, 1) = q_sys%coor_av(jj, 1) + q_sys%coor_new(ii,jj,1)
-                    q_sys%coor_av(jj, 2) = q_sys%coor_av(jj, 2) + q_sys%coor_new(ii,jj,2)
-                    q_sys%coor_av(jj, 3) = q_sys%coor_av(jj, 3) + q_sys%coor_new(ii,jj,3)
-
-                    
                 end do 
                 
                 !temporal to calculate theta
@@ -431,23 +422,6 @@ module td_propagator_mod
         end if
 
         
-        if (q_sys%BO_dyn) then
-            write(coor_charge_unit,*) q_sys%n_atoms
-            write(coor_charge_unit,*) "time :", time
-            do ii=1, q_sys%n_atoms
-
-                write(coor_charge_unit,*) q_sys%atom_names(1,ii), &
-                q_sys%coor_av(ii, 1)/AA__Bohr/q_sys%n_mol,        &
-                q_sys%coor_av(ii, 2)/AA__Bohr/q_sys%n_mol,        &
-                q_sys%coor_av(ii, 3)/AA__Bohr/q_sys%n_mol,        &
-                q_sys%charges_av(ii)/q_sys%n_mol
-
-            end do
-
-            ! write(777, *) time, cos_teta2/q_sys%n_mol
-
-        end if
-
         deallocate(atomNetCharges)
         deallocate(coor_aux)
         deallocate(forces_aux)    

@@ -2,6 +2,7 @@ module IO_mod
 
     use constants_mod
     use grid_mod
+    use q_medium_mod
 
     implicit none
 
@@ -36,7 +37,13 @@ module IO_mod
     logical            :: dftb_BO_dyn   = .false.
 
     !Option to include magnetic fields in BO dynamics.
-    logical            :: dftb_B_field  = .false.
+    logical            :: dftb_B_field   = .false.
+
+    !Option to print the moleclar dynamics.
+    logical            :: dftb_print_dyn = .false.
+
+    !Printing frequency in fs of the 'coor_charge_output.dat' file.
+    real(dp)           :: dftb_t_print_dyn = 1.0_dp
 
     !Tolerance of the energy change during the DFTB ground state calculation.
     real(dp)           :: dftb_scc_tol  = 1.0e-10_dp
@@ -44,7 +51,7 @@ module IO_mod
     !Suggested time step for the DFTB system. This value is modified later
     ! to be a multiple of the Maxwell time step.
     real(dp)           :: dftb_td       = 0.1e0_dp
-   
+
     !Number of grid points in Maxwell box.
     integer   :: mxll_Nz       = 1000
 
@@ -118,7 +125,7 @@ subroutine read_input_variables()
 
     namelist /MXLL_DFTB/ dftb_atom_type, dftb_max_ang_orb, dftb_periodic, dftb_scc, &
     dftb_ion_dyn, dftb_scc_tol, dftb_td, dftb_n_mol, dftb_n_atoms, dftb_n_types,    &
-    dftb_euler_steps, dftb_BO_dyn, dftb_B_field,                                    &
+    dftb_euler_steps, dftb_BO_dyn, dftb_B_field, dftb_print_dyn, dftb_t_print_dyn,  &
     mxll_Nz, mxll_Nt, mxll_n_media, mxll_dz, mxll_dt,                               &
     mxll_density, mxll_z_src, mxll_w_src, mxll_tau_src, mxll_t_print_big,           &
     mxll_w_drude, mxll_gamma_drude, mxll_ep_drude, mxll_n_pml, mxll_z_detect,       &
@@ -220,5 +227,45 @@ subroutine write_H_field(vec, coor, n_dim, time, file_name)
     close(io)
 
 end subroutine write_H_field
+
+subroutine write_q_coor(unit_coor, unit_ener_dip, q_sys, time)
+
+    type(q_medium)  , intent(in) :: q_sys
+    double precision, intent(in) :: time
+    integer         , intent(in) :: unit_coor
+    integer         , intent(in) :: unit_ener_dip
+
+    integer :: ii, nn
+
+    if (q_sys%BO_dyn .or. q_sys%ion_dyn) then
+    
+        write(unit_coor,*) q_sys%n_atoms*q_sys%n_mol
+        write(unit_coor,*) "time :", time, "N molecules:", q_sys%n_mol, "N atoms:", q_sys%n_atoms
+
+        do nn=1, q_sys%n_mol
+        do ii=1, q_sys%n_atoms
+
+            write(unit_coor,*) q_sys%atom_names(nn,ii), &
+            q_sys%coor(nn,ii, 1)/AA__Bohr,        &
+            q_sys%coor(nn,ii, 2)/AA__Bohr,        &
+            q_sys%coor(nn,ii, 3)/AA__Bohr + (10*(nn-1)),        &
+            q_sys%at_charges(nn, ii)
+
+        end do
+        end do
+
+    end if
+
+    write(unit_ener_dip,*) "# time :", time
+    write(unit_ener_dip,'(a1,2x, a10,2x ,a20,2x, a20,2x)') "#", "N mol", "dipole", "energy (eV)"
+
+    do nn=1, q_sys%n_mol
+
+        write(unit_ener_dip,*) nn, q_sys%dipole(nn), &
+            (q_sys%energy(nn)-q_sys%energy_gs(nn))/ev_to_au
+
+    end do
+
+end subroutine write_q_coor
 
 end module IO_mod

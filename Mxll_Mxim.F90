@@ -21,13 +21,15 @@ program Maxwell_Maxim
     integer          :: k_det_L
     integer          :: k_det_R
     integer          :: k_source
-    integer          :: out_unit = 101
     integer          :: t_print
     integer          :: t_print2
+    integer          :: t_print_coor
     integer          :: print_step
     integer          :: n_media
-    integer          :: q_sys_unit = 102
+    integer          :: out_unit         = 101
+    integer          :: q_sys_unit       = 102
     integer          :: coor_charge_unit = 103
+    integer          :: ener_dip_unit    = 104
     double precision :: Ex_L
     double precision :: Hy_L
     double precision :: Ex_R
@@ -50,6 +52,7 @@ program Maxwell_Maxim
     character(len=30):: output_file="detector.dat"
     character(len=30):: q_sys_output_file="q_sys_output.dat"
     character(len=30):: coor_charge_output_file = "coor_charge_output.dat"
+    character(len=30):: ener_dip_output_file = "ener_dip_output.dat"
     
     type(external_src), allocatable :: src(:)
     type(drude)       , allocatable :: media(:)
@@ -61,24 +64,25 @@ program Maxwell_Maxim
 
     call read_input_variables()
 
-    Nz       = mxll_Nz
-    dz       = mxll_dz * nm_to_au
-    dt       = MIN(dz/(2.0*c0), mxll_dt)
-    dt_q     = dftb_td
-    len_mol  = dftb_n_mol * dz
-    density  = mxll_density !matter per nm^3
-    k_det_L  = int(mxll_Nz/2) - int(mxll_z_detect/mxll_dz)
-    k_det_R  = int(mxll_Nz/2) + int(mxll_z_detect/mxll_dz)
-    k_source = int(mxll_Nz/2) + int(mxll_z_src/mxll_dz)
-    npml     = mxll_n_pml
-    omega    = mxll_w_src * ev_to_au
-    E0       = mxll_Ex_src
-    tau      = mxll_tau_src * fs_to_au
-    Nt_fs    = mxll_Nt
-    Nt       = Nt_fs * int((1.0*fs_to_au)/(dt))
-    t_print  = int(mxll_t_print_big*fs_to_au/dt) !1*int(1.0/(aut*dt))
-    t_print2 = int(mxll_t_print_small*fs_to_au/dt)
-    n_media  = mxll_n_media
+    Nz           = mxll_Nz
+    dz           = mxll_dz * nm_to_au
+    dt           = MIN(dz/(2.0*c0), mxll_dt)
+    dt_q         = dftb_td
+    len_mol      = dftb_n_mol * dz
+    density      = mxll_density !matter per nm^3
+    k_det_L      = int(mxll_Nz/2) - int(mxll_z_detect/mxll_dz)
+    k_det_R      = int(mxll_Nz/2) + int(mxll_z_detect/mxll_dz)
+    k_source     = int(mxll_Nz/2) + int(mxll_z_src/mxll_dz)
+    npml         = mxll_n_pml
+    omega        = mxll_w_src * ev_to_au
+    E0           = mxll_Ex_src
+    tau          = mxll_tau_src * fs_to_au
+    Nt_fs        = mxll_Nt
+    Nt           = Nt_fs * int((1.0*fs_to_au)/(dt))
+    t_print      = int(mxll_t_print_big*fs_to_au/dt) !1*int(1.0/(aut*dt))
+    t_print2     = int(mxll_t_print_small*fs_to_au/dt)
+    t_print_coor = int(dftb_t_print_dyn*fs_to_au/dt)
+    n_media      = mxll_n_media
 
     !Material data
 
@@ -140,8 +144,13 @@ program Maxwell_Maxim
 
     write(out_unit, '(a1,2x,a5,2x,100(a20,2x))') "#", "Step", "Ex_L", "Hy_L", "Ex_R", "Hy_R", "U (eV)"
 
-    if(q_sys%BO_dyn) then
-        open(unit=coor_charge_unit, file=coor_charge_output_file, status='replace')
+    if(dftb_print_dyn) then
+        open(unit=ener_dip_unit   , file=ener_dip_output_file   , status='replace')
+        
+        if (q_sys%BO_dyn .or. q_sys%ion_dyn) then
+            open(unit=coor_charge_unit, file=coor_charge_output_file, status='replace')
+    
+        end if
     end if
 
     i0 = int(Nz/2) + 1
@@ -207,6 +216,13 @@ program Maxwell_Maxim
             write(out_unit, '(3x, 100(es20.12e3,2x))') time,  Ex_L, Hy_L, Ex_R, Hy_R, E_mxll
             ! write(777,*) time, mxll_grid%Ex(i0-1),  mxll_grid%Ex(i0), mxll_grid%Ex(i0+1)
         end if
+
+        if (mod(tt, t_print_coor) == 0 .and. dftb_print_dyn) then
+
+            call write_q_coor(coor_charge_unit, ener_dip_unit, q_sys, time)
+
+        end if
+
     end do
 
     call mxll_grid%kill_grid()
@@ -224,6 +240,13 @@ program Maxwell_Maxim
     deallocate(z_coor)
     close(out_unit)
     close(q_sys_unit)
-    if(q_sys%BO_dyn) close(coor_charge_unit)
+    
+    if(dftb_print_dyn) then
+        close(ener_dip_unit)
+        if (q_sys%BO_dyn .or. q_sys%ion_dyn) then
+            close(coor_charge_unit)
+        end if
+    end if
+
 
 end program Maxwell_Maxim
