@@ -266,14 +266,9 @@ module td_propagator_mod
         real(dp), allocatable :: coor_aux(:,:)
         real(dp), allocatable :: forces_aux(:,:)
 
-        !temporal to calculate angles
-        real(dp) :: mass
-        real(dp) :: F_CM(3)
-        ! real(dp) :: r_vec(3)
-        ! real(dp) :: cos_teta2(3)
-
         aux_field    = 0.0d0
         
+        !TODO: there is no tq_step = 1 when n_skip = 1
         tq_step = 1+(t_step/n_skip)
 
         if(tq_step <= tq_step_old) return
@@ -292,7 +287,6 @@ module td_propagator_mod
             q_sys%Kin        = 0.0d0
             q_sys%dE_t       = -q_sys%E_gs
             q_sys%dip_tot    = 0.0d0
-            ! cos_teta2 = 0.0
 
             do ii=1, n_mol
                 indx         = q_sys%index(ii)
@@ -325,22 +319,14 @@ module td_propagator_mod
                     end if
                 end do
                 
-                F_CM = 0.0d0
-                mass = 0.0d0
-                do jj=1, n_at
-                    F_CM = F_CM + q_sys%at_masses(ii, jj)*q_sys%forces(ii,jj,:)
-                    mass = mass + q_sys%at_masses(ii, jj)
-                end do
-                F_CM = F_CM/mass
-
                 do jj=1, n_at
                    
                     if (tq_step == 1) then
                         q_sys%coor_new(ii,jj,:) =  q_sys%coor(ii,jj,:) + q_sys%vel(ii,jj,:)*dt_skip + &
-                        0.5*(q_sys%forces(ii,jj,:)-F_CM(:))/q_sys%at_masses(ii,jj)*dt_skip**2
+                        0.5*q_sys%forces(ii,jj,:)/q_sys%at_masses(ii,jj)*dt_skip**2
                     else
                         q_sys%coor_new(ii,jj,:) =  2.0*q_sys%coor(ii,jj,:) - q_sys%coor_old(ii,jj,:) + &
-                        (q_sys%forces(ii,jj,:)-F_CM(:))/q_sys%at_masses(ii,jj)*dt_skip**2
+                        q_sys%forces(ii,jj,:)/q_sys%at_masses(ii,jj)*dt_skip**2
                     end if
                    
                     q_sys%dipole(ii) = q_sys%dipole(ii)  + q_sys%at_charges(ii,jj) * q_sys%coor_new(ii,jj,1)
@@ -355,15 +341,6 @@ module td_propagator_mod
                         
                 end do 
                 
-                !temporal to calculate theta
-                ! r_vec(1) =  q_sys%coor_new(ii, 1, 1) - q_sys%coor_new(ii, 2, 1) 
-                ! r_vec(2) =  q_sys%coor_new(ii, 1, 2) - q_sys%coor_new(ii, 2, 2)
-                ! r_vec(3) =  q_sys%coor_new(ii, 1, 3) - q_sys%coor_new(ii, 2, 3)
-
-                ! cos_teta2(1) = cos_teta2(1) + r_vec(1)**2/(r_vec(1)**2+ r_vec(2)**2+ r_vec(3)**2)
-                ! cos_teta2(2) = cos_teta2(2) + r_vec(2)**2/(r_vec(1)**2+ r_vec(2)**2+ r_vec(3)**2)
-                ! cos_teta2(3) = cos_teta2(3) + r_vec(3)**2/(r_vec(1)**2+ r_vec(2)**2+ r_vec(3)**2)
-
                 q_sys%dip_tot = q_sys%dip_tot + q_sys%dipole(ii)
                 
                 q_sys%coor_old(ii,:,:) = q_sys%coor(ii,:,:)
