@@ -35,7 +35,8 @@ module td_propagator_mod
         double precision, intent(in)    :: dz
         double precision, intent(inout) :: dt
 
-        integer k, kk
+        double precision :: sig_to_au
+        integer          :: k, kk
 
         if (.not. allocated(den_ez))   allocate(den_ez(Nz))
         if (.not. allocated(den_hz))   allocate(den_hz(Nz))
@@ -61,10 +62,12 @@ module td_propagator_mod
         dt_eps0=dt/eps0; dt_mu0=dt/mu0
         dt_epsM=dt_eps0
 
+        sig_to_au = C_to_au**2*sec_to_au/(kg_to_au*m_to_au**3)
+
         sigmaCPML=0.8*(m+1)/(dz*(mu0/eps0)**0.5)
         do k=1,npml
             sige_z(k)=sigmaCPML*((npml-k)/(npml-1.0))**m
-            alphae_z(k)=alphaCPML*((k-1)/(npml-1.0))**ma
+            alphae_z(k)=alphaCPML*sig_to_au*((k-1)/(npml-1.0))**ma
             kappae_z(k)=1.0+(kappaCPML-1.0)*((npml-k)/(npml-1.0))**m
             be_z(k)=exp(-(sige_z(k)/kappae_z(k)+alphae_z(k))*dt/eps0)
             if ((sige_z(k)==0.0).and. &
@@ -78,7 +81,7 @@ module td_propagator_mod
 
         do k=1,npml-1
             sigh_z(k)=sigmaCPML*((npml-k-0.5)/(npml-1.0))**m
-            alphah_z(k)=alphaCPML*((k-0.5)/(npml-1.0))**ma
+            alphah_z(k)=alphaCPML*sig_to_au*((k-0.5)/(npml-1.0))**ma
             kappah_z(k)=1.0+(kappaCPML-1.0)*((npml-k-0.5)/(npml-1.0))**m
             bh_z(k)=exp(-(sigh_z(k)/kappah_z(k)+alphah_z(k))*dt/eps0)
             ch_z(k)=sigh_z(k)*(bh_z(k)-1.0)/(sigh_z(k)+kappah_z(k)*alphah_z(k))/kappah_z(k)
