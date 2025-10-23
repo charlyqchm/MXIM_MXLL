@@ -115,21 +115,22 @@ module td_propagator_mod
 
     subroutine td_prop_WI_media(mxll_grid, dt, dz, density, media, n_media)
 
-        type(grid)       , intent(inout) :: mxll_grid
-        type(drude)      , intent(inout) :: media(n_media)
-        integer          , intent(in)    :: n_media
-        double precision , intent(in)    :: dt
-        double precision , intent(in)    :: dz
-        double precision , intent(in)    :: density
+        type(grid)           , intent(inout) :: mxll_grid
+        type(classic_medium) , intent(inout) :: media(n_media)
+        integer              , intent(in)    :: n_media
+        double precision     , intent(in)    :: dt
+        double precision     , intent(in)    :: dz
+        double precision     , intent(in)    :: density
         
         integer            :: ii, kk
         integer            :: id
         integer            :: Nz
         double precision   :: Px_av
-        double precision   :: cx
-        double precision   :: tmpE, A1, A2, C1, C3, C4
+        double precision   :: cx, cp
+        double precision   :: tmpE, rotH
 
         cx = density*dt/eps0
+        cp = dt/(dz/(2.0*c0))
         Nz = mxll_grid%Nz
 
         !~~~~~~ Hy ~~~~~~~~!
@@ -150,20 +151,19 @@ module td_propagator_mod
         enddo
 
         do ii=2,Nz-1
-            Px_av                = mxll_grid%Jx(ii)+(time-tskip)*mxll_grid%dJx(ii)
+            Px_av                = mxll_grid%Jx_old(ii)+(time-tskip)*mxll_grid%dJx(ii)
             mxll_grid%Ex_new(ii) = mxll_grid%Ex(ii)&
                                  +dt_epsM*(mxll_grid%Hy(ii-1)-mxll_grid%Hy(ii))*den_ez(ii) &
-                                 - cx*Px_av + pulse(ii)
+                                 - cx*Px_av + pulse(ii)*cp
         enddo
 
         do ii=1, n_media
         do kk=1, media(ii)%n_tot
             id   = media(ii)%indx(kk)
-            A1   = media(ii)%A1; A2   = media(ii)%A2; C1   = media(ii)%C1
-            C3   = media(ii)%C3; C4   = media(ii)%C4
+            rotH = (mxll_grid%Hy(id-1)-mxll_grid%Hy(id))/dz
 
-            tmpE = C1*mxll_grid%Ex(id)+C3*(mxll_grid%Hy(id-1)-mxll_grid%Hy(id))/dz-C4*media(ii)%Px(kk)
-            media(ii)%Px(kk)=A1*media(ii)%Px(kk)+A2*(tmpE+mxll_grid%Ex(id))
+            call media(ii)%get_polarization(rotH, mxll_grid%Ex(id), tmpE, kk)
+
             mxll_grid%Ex_new(id)=tmpE
         end do
         end do
@@ -196,10 +196,11 @@ module td_propagator_mod
         integer            :: id
         integer            :: Nz
         double precision   :: Px_av
-        double precision   :: cx
+        double precision   :: cx, cp
         double precision   :: tmpE, A1, A2, C1, C3, C4
 
         cx = density*dt/eps0
+        cp = dt/(dz/(2.0*c0))
         Nz = mxll_grid%Nz
 
         !~~~~~~ Hy ~~~~~~~~!
@@ -219,11 +220,12 @@ module td_propagator_mod
             kk=kk-1
         enddo
 
+        !GUARDA CON ESTA MODIFICACION!!!!!!!!!
         do ii=2,Nz-1
-            Px_av                = mxll_grid%Jx(ii)+(time-tskip)*mxll_grid%dJx(ii)
+            Px_av                = mxll_grid%Jx_old(ii)+(time-tskip)*mxll_grid%dJx(ii)
             mxll_grid%Ex_new(ii) = mxll_grid%Ex(ii)&
                                  +dt_epsM*(mxll_grid%Hy(ii-1)-mxll_grid%Hy(ii))*den_ez(ii) &
-                                 - cx*Px_av + pulse(ii)
+                                 - cx*Px_av + pulse(ii)*cp
         enddo
 
         mxll_grid%Ex = mxll_grid%Ex_new
@@ -303,11 +305,16 @@ module td_propagator_mod
                 do jj=1, n_at
                     coor_aux(:, jj) = q_sys%coor(ii,jj,:)
                 end do
+
+                close(q_sys%std_unit)
+                open(newunit=q_sys%std_unit, file="temp_output", status='replace', action="write")
+
                 call q_sys%dftbp(ii)%setGeometry(coor_aux)
                 call q_sys%dftbp(ii)%setExternalEfield(E_field, aux_field)
                 call q_sys%dftbp(ii)%getGradients(forces_aux)
                 call q_sys%dftbp(ii)%getEnergy(energy)
                 call q_sys%dftbp(ii)%getGrossCharges(atomNetCharges(:,1)) 
+
 
                 q_sys%dE_t = q_sys%dE_t + energy
 
@@ -350,11 +357,11 @@ module td_propagator_mod
                 q_sys%coor(ii,:,:)     = q_sys%coor_new(ii,:,:)
 
                 mxll_grid%Jx(indx)=(q_sys%dipole(ii)-q_sys%dip_old(ii))/dt_skip
-            
-                if(tq_step==1) mxll_grid%Jx(indx)= 0.0d0
+           
+                ! if(tq_step==1) mxll_grid%Jx(indx)= 0.0d0
 
                 mxll_grid%dJx(indx)=(mxll_grid%Jx(indx)-mxll_grid%Jx_old(indx))/dt_skip
-
+            
             end do
 
         else
@@ -385,7 +392,7 @@ module td_propagator_mod
 
                 mxll_grid%Jx(indx)=(q_sys%dipole(ii)-q_sys%dip_old(ii))/dt_skip
             
-                if(tq_step==1) mxll_grid%Jx(indx)= 0.0d0
+                !if(tq_step==1) mxll_grid%Jx(indx)= 0.0d0
 
                 mxll_grid%dJx(indx)=(mxll_grid%Jx(indx)-mxll_grid%Jx_old(indx))/dt_skip
 

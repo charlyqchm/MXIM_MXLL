@@ -1,8 +1,8 @@
 FC=gfortran
 FFLAGS=-O3 
 LIBS=-ldftbplus -fopenmp -lblas -llapack
-INCLUDE_DIR=/home/bustamac/Programs_and_libraries/DFTB_CH/_build_01/_install/include/dftbplus/modfiles
-LIB_DIR=/home/bustamac/Programs_and_libraries/DFTB_CH/_build_01/_install/lib
+INCLUDE_DIR=$(DFTB_INSTALL)/include/dftbplus/modfiles
+LIB_DIR=$(DFTB_INSTALL)/lib
 
 SRC:=constants_mod.F90
 SRC+=external_src_mod.F90
@@ -16,7 +16,7 @@ MAIN=Mxll_Mxim.F90
 MOD=${SRC:.F90=.mod}
 OBJ=${SRC:.F90=.o}
 OBJ+=Mxll_Mxim.o
-EXC=program.e
+EXC=mxll_mxim.e
 
 %.o: %.F90 #wildcard rule, creation of *.o depends on *.f90
 	$(FC) $(FFLAGS) -o $@ -c $< -I$(INCLUDE_DIR)

@@ -22,7 +22,7 @@ module IO_mod
     integer            :: dftb_n_atoms                    
     
     !Steps frequency to take an Euler step in electron and Ehrenfest dynamics.
-    integer            :: dftb_euler_steps                
+    integer            :: dftb_euler_steps=500                
     
     !Boundary conditions for the DFTB system (currently .false. option is only available)
     logical            :: dftb_periodic = .false.
@@ -52,13 +52,27 @@ module IO_mod
     ! to be a multiple of the Maxwell time step.
     real(dp)           :: dftb_td       = 0.1e0_dp
 
+    !Medium type. This could be:
+    ! - dielectric
+    ! - drude
+    ! - drude-lorentz
+    ! TODO: this should be an array to use different kind of media.
+    character(len=20) :: mxll_medium_type = "drude"
+
+    !Metal type, in case of using the medium "drude-lorenz". This could be:
+    ! - Ag
+    ! - Al
+    ! - Au
+    ! TODO: this should be an array to use different kind of metal per medium.
+    character(len=10) :: mxll_metal = "Au"
+
     !Number of grid points in Maxwell box.
     integer   :: mxll_Nz       = 1000
 
     !Simulation time in fs.
     integer   :: mxll_Nt       = 10
 
-    !Number of Drude media
+    !Number of media
     integer   :: mxll_n_media  = 0
 
     !Number of PML points.
@@ -74,8 +88,8 @@ module IO_mod
     ! to the Courant condition which is set by default.
     real(dp)  :: mxll_dt       =  1.0E10
 
-    !Number of DFTB systems per atomic unit of volume.
-    real(dp)  :: mxll_density  = 1.0e-5_dp
+    !Number of DFTB systems per nm^3.
+    real(dp)  :: mxll_density  = 1.0e-2_dp
     
     !Amplitude of pulse source.
     real(dp)  :: mxll_Ex_src   = 0.001
@@ -126,7 +140,7 @@ subroutine read_input_variables()
     namelist /MXLL_DFTB/ dftb_atom_type, dftb_max_ang_orb, dftb_periodic, dftb_scc, &
     dftb_ion_dyn, dftb_scc_tol, dftb_td, dftb_n_mol, dftb_n_atoms, dftb_n_types,    &
     dftb_euler_steps, dftb_BO_dyn, dftb_B_field, dftb_print_dyn, dftb_t_print_dyn,  &
-    mxll_Nz, mxll_Nt, mxll_n_media, mxll_dz, mxll_dt,                               &
+    mxll_Nz, mxll_Nt, mxll_n_media, mxll_dz, mxll_dt, mxll_medium_type, mxll_metal, &
     mxll_density, mxll_z_src, mxll_w_src, mxll_tau_src, mxll_t_print_big,           &
     mxll_w_drude, mxll_gamma_drude, mxll_ep_drude, mxll_n_pml, mxll_z_detect,       &
     mxll_Ex_src, mxll_media_center, mxll_media_rad, mxll_t_print_small,             &

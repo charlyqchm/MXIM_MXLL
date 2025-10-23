@@ -54,10 +54,10 @@ program Maxwell_Maxim
     character(len=30):: coor_charge_output_file = "coor_charge_output.dat"
     character(len=30):: ener_dip_output_file = "ener_dip_output.dat"
     
-    type(external_src), allocatable :: src(:)
-    type(drude)       , allocatable :: media(:)
-    double precision  , allocatable :: z_coor(:)
-    double precision  , parameter, dimension (4) :: aBH=(/0.353222222d0,-0.488d0,0.145d0,-0.010222222d0/) !Blackman-Harris window for the pulse envelope
+    type(external_src)   , allocatable :: src(:)
+    type(classic_medium) , allocatable :: media(:)
+    double precision     , allocatable :: z_coor(:)
+    double precision     , parameter, dimension (4) :: aBH=(/0.353222222d0,-0.488d0,0.145d0,-0.010222222d0/) !Blackman-Harris window for the pulse envelope
 
     !temporal
     integer :: i0
@@ -69,7 +69,7 @@ program Maxwell_Maxim
     dt           = MIN(dz/(2.0*c0), mxll_dt)
     dt_q         = dftb_td
     len_mol      = dftb_n_mol * dz
-    density      = mxll_density !matter per nm^3
+    density      = mxll_density/(nm_to_au)**3 !matter per nm^3
     k_det_L      = int(mxll_Nz/2) - int(mxll_z_detect/mxll_dz)
     k_det_R      = int(mxll_Nz/2) + int(mxll_z_detect/mxll_dz)
     k_source     = int(mxll_Nz/2) + int(mxll_z_src/mxll_dz)
@@ -94,6 +94,7 @@ program Maxwell_Maxim
     
     if (n_media>0) allocate(media(n_media))
 
+    !CAREFULL WITH ODD NUMBERS
     z0 = -dz*Nz*0.5
 
     do ii=1,Nz
@@ -107,7 +108,7 @@ program Maxwell_Maxim
     do ii=1, n_media
         z_min = (mxll_media_center(ii)-mxll_media_rad(ii))*nm_to_au
         z_max = (mxll_media_center(ii)+mxll_media_rad(ii))*nm_to_au
-        call media(ii)%init_drude(z_coor, z_min,z_max, omegaD, GammaD, eps_r, dt, Nz)
+        call media(ii)%init_classical_medium(z_coor, z_min,z_max, omegaD, GammaD, eps_r, dt, Nz, mxll_medium_type, mxll_metal)
     end do
 
     n_skip=1
@@ -120,7 +121,7 @@ program Maxwell_Maxim
 
     Nt_q=1+(Nt/n_skip)
 
-    call q_sys%init_q_medium(z_coor, len_mol, dftb_n_mol, dftb_n_atoms, dftb_n_types, density,  &
+    call q_sys%init_q_medium(dz, len_mol, dftb_n_mol, dftb_n_atoms, dftb_n_types, density,  &
                              dt_skip, Nt_q, Nz, dftb_atom_type, dftb_max_ang_orb, dftb_scc,  &
                              dftb_scc_tol, dftb_periodic, dftb_ion_dyn, dftb_BO_dyn, dftb_B_field, dftb_euler_steps)
 
@@ -229,7 +230,7 @@ program Maxwell_Maxim
     ! call mxll_inc%kill_grid()
     call q_sys%kill_q_medium()
     do ii =1, n_media
-        call media(ii)%kill_drude()
+        call media(ii)%kill_classical_medium()
     end do
 
     do ii = 1, mxll_ext_src

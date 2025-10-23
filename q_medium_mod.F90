@@ -14,6 +14,7 @@ module q_medium_mod
         logical                            :: ion_dyn
         integer                            :: n_mol
         integer                            :: n_atoms
+        integer                            :: std_unit
         double precision                   :: density
         double precision                   :: E_gs
         double precision                   :: dE_t
@@ -57,7 +58,7 @@ module q_medium_mod
 
 contains
 
-    subroutine init_q_medium(this, z_coor, len_mol, n_mol, n_atoms,n_type, density, &
+    subroutine init_q_medium(this, dz, len_mol, n_mol, n_atoms,n_type, density, &
                              td_step, n_steps, Nz, atom_type_list, max_ang_orb, scc,  &
                              scc_tol, periodic, ion_dyn, BO_dyn, B_field, euler_step)
 
@@ -75,16 +76,18 @@ contains
         integer            , intent(in)    :: n_type
         integer            , intent(in)    :: n_atoms
         integer            , intent(in)    :: euler_step
-        double precision   , intent(in)    :: z_coor(Nz)
         double precision   , intent(in)    :: len_mol
         double precision   , intent(in)    :: td_step
         double precision   , intent(in)    :: density
+        double precision   , intent(in)    :: dz
         real(dp)           , intent(in)    :: scc_tol
 
         integer, parameter :: nAtom = 2
 
         real(dp) :: coor_aux(3,n_atoms)
-        !Nitrogen atom types
+        real(dp) :: atomNetCharges(n_atoms, 1)
+        real(dp) :: z0
+        real(dp) :: z_M
         integer  :: species(n_atoms)
        
         character(len=20) :: file_name
@@ -139,17 +142,10 @@ contains
         this%energy     = 0.0d0
         this%at_charges = 0.0d0
 
-        nn = 1
-        do kk=1,Nz
-            if((z_coor(kk)>(-len_mol/2.0) .and. nn<=n_mol)) then
-                this%index(nn) = kk
-                nn = nn+1
-            end if
-        enddo 
-
+        
         !############## Reading xyz files ###############################################
         !we assume all the systems have the same composition
-
+        
         dot = "."
         file_exten = ".xyz"
         do kk=1, n_mol
@@ -157,16 +153,18 @@ contains
             write(file_number, '(I6.6)') kk
             file_name = 'molecule'
             input_name = trim(file_name)//trim(dot)//trim(file_number)//trim(file_exten)
-
-
+            
+            
             inquire(file=input_name, exist=exists)
 
             if (exists) then
-            
+                
                 open(newunit=io, file=input_name, status="old")
                 
                 read(io, *) n_atoms_aux
-
+                read(io, *) z_M
+                
+                this%index(kk) = INT(z_M*nm_to_au/dz) + INT(Nz/2) + 1
                 
                 if (n_atoms_aux /= n_atoms) then
                     write(*,*) "Error. File   ", input_name, "does not have", n_atoms, "atoms."
@@ -200,21 +198,22 @@ contains
                 end do
 
 
-
+                
             else
                 write(*,*) "Error. File", file_name, "does not exist"
                 stop 
             end if
-
+            
             close(io)
-
+            
         end do
-
+        
         !################################################################################
-
-
+        
+        open(newunit=this%std_unit, file="temp_output", status='replace', action="write")
+        
         do nn=1, n_mol
-            call TDftbPlus_init(this%dftbp(nn))
+            call TDftbPlus_init(this%dftbp(nn), outputUnit=this%std_unit)
             call this%dftbp(nn)%getEmptyInput(this%input(nn))
             call this%input(nn)%getRootNode(this%pRoot)
 
@@ -243,7 +242,7 @@ contains
             if (this%BO_dyn) then
                 call setChild(this%pRoot, "Analysis", this%pAnalysis)
                 call setChildValue(this%pAnalysis, "PrintForces", .true.)
-
+                
                 call setChild(this%pDftb, "ElectricField", this%pElecStatic)
                 call setChild(this%pElecStatic, "External", this%pExternal)
                 call setChildValue(this%pExternal, "Strength", 0.0_dp)
@@ -257,6 +256,7 @@ contains
                 call setChildValue(this%pElecDyn, "IonDynamics", ion_dyn)
                 call setChildValue(this%pElecDyn, "InitialTemperature", 0.0_dp)
                 call setChildValue(this%pElecDyn, "EulerFrequency", euler_step)
+                call setChildValue(this%pElecDyn, "VerboseDynamics", .false.)
 
                 call setChild(this%pElecDyn, "Perturbation", this%pPerturb)
                 call setChild(this%pPerturb, "Laser", this%pLaser)
@@ -266,6 +266,7 @@ contains
             end if
 
         end do
+
 
         this%dE_t    = 0.0d0
         this%E_gs    = 0.0d0
@@ -281,7 +282,13 @@ contains
             end do
             call this%dftbp(nn)%setGeometry(coor_aux)
             call this%dftbp(nn)%getEnergy(merminEnergy)
-            
+            call this%dftbp(nn)%getGrossCharges(atomNetCharges(:,1))
+
+            do kk=1, n_atoms            
+                this%dipole(nn) = this%dipole(nn)  + atomNetCharges(kk,1) * this%coor(nn,kk,1)
+                this%at_charges(nn,kk) = atomNetCharges(kk,1)
+            end do
+
             this%E_gs = this%E_gs + merminEnergy
             this%energy_gs(nn) =  merminEnergy
 
@@ -292,17 +299,9 @@ contains
             end if
         end do
 
-
-        if (this%BO_dyn) then
-            do nn=1, n_mol    
-            do kk=1, n_atoms
-                this%coor_old(nn,kk,:) = this%coor(nn,kk,:) - &
-                                         this%vel(nn,kk,:)*AA__Bohr*td_step
-            end do
-            end do
-        else
-            this%coor_old = this%coor
-        end if
+        ! close(this%std_unit)
+        this%dip_old  = this%dipole
+        this%coor_old = this%coor
 
     end subroutine init_q_medium
 
@@ -314,6 +313,8 @@ contains
         do ii=1, this%n_mol
             call TDftbPlus_destruct(this%dftbp(ii))
         end do
+
+        close(this%std_unit)
 
         if (allocated(this%index))       deallocate(this%index)
         if (allocated(this%dftbp))       deallocate(this%dftbp)
